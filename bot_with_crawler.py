@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler
-from aiogram.webhook.middlewares.fastapi import FastAPIRequestHandler
+#from aiogram.webhook.middlewares.fastapi import FastAPIRequestHandler
 
 from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest
@@ -233,16 +233,24 @@ async def on_shutdown():
     await bot.delete_webhook(drop_pending_updates=True)
 
 # прокидываем обновления в aiogram
-request_handler = FastAPIRequestHandler(dp, bot)
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
+    # Проверяем секрет вебхука
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if secret != WEBHOOK_SECRET:
+        # Чтобы не палить причину — 403
+        raise HTTPException(status_code=403, detail="forbidden")
     try:
-        await request_handler.handle(request)
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json")
+
+    update = Update(**data)
+    await dp.feed_update(bot, update)
+    return Response(content='{"ok": true}', media_type="application/json")
 
 # health
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
