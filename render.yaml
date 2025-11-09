@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: tg-search-bot
+    env: docker
+    plan: free
+    autoDeploy: true
+    disk:
+      name: bot-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false
+      - key: CHANNELS_FILE
+        value: /app/channels.txt
+      - key: CRAWL_INTERVAL_SEC
+        value: "900"
+      - key: BASE_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
