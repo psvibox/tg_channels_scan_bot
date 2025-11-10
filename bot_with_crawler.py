@@ -16,8 +16,8 @@ from telethon.tl.functions.channels import JoinChannelRequest
 # ===== настройки окружения =====
 PORT = int(os.getenv("PORT", "10000"))  # Render открывает порт из $PORT
 BASE_URL = os.getenv("BASE_URL")        # публичный https URL Render сервиса, например https://your-app.onrender.com
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен
-WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен (только латиница/цифры/подчёркивание/дефис)
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем секрет в путь
 
 DB_PATH = Path("data/search.db")
 CHANNELS_FILE = Path(os.getenv("CHANNELS_FILE", "channels.txt"))
