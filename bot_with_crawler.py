@@ -126,6 +126,12 @@ async def crawl_once():
     else:
         client = TelegramClient(SESSION, API_ID, API_HASH)
         await client.connect()
+    me = await client.get_me()
+    if getattr(me, "bot", False):
+       raise RuntimeError(
+             "TG_SESSION_STRING указывает на БОТА. Краулер Telethon требует пользовательскую сессию. "
+             "Сгенерируй StringSession через вход по телефону и подставь её в переменную окружения."
+             )
     if not await client.is_user_authorized():
         raise RuntimeError("Telethon не авторизован. Установи TG_SESSION_STRING (StringSession) или смонтируй persist-диск и выполни вход один раз.")
     try:
@@ -305,3 +311,4 @@ async def telegram_webhook(request: Request):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
