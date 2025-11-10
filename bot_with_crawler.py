@@ -11,6 +11,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
 
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.tl.functions.channels import JoinChannelRequest
 
 # ===== настройки окружения =====
@@ -38,6 +39,7 @@ if not API_ID or not API_HASH:
     raise SystemExit("TG_API_ID / TG_API_HASH не заданы")
 
 SESSION = os.getenv("TG_SESSION", "tg_crawler_embedded")
+SESSION_STRING = os.getenv("TG_SESSION_STRING", "")
 
 DDL = """
 CREATE TABLE IF NOT EXISTS docs (
@@ -118,8 +120,14 @@ async def crawl_once():
         return
 
     con = db()
-    client = TelegramClient(SESSION, API_ID, API_HASH)
-    await client.start()
+    if SESSION_STRING:
+        client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+        await client.connect()
+    else:
+        client = TelegramClient(SESSION, API_ID, API_HASH)
+        await client.connect()
+    if not await client.is_user_authorized():
+        raise RuntimeError("Telethon не авторизован. Установи TG_SESSION_STRING (StringSession) или смонтируй persist-диск и выполни вход один раз.")
     try:
         for chan in chans:
             try:
