@@ -1,4 +1,4 @@
-# bot_with_crawler.py
+# bot_with_crawler.py v1.1
 # pip install aiogram fastapi uvicorn telethon
 import os, html, asyncio, sqlite3
 from pathlib import Path
@@ -6,15 +6,12 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException, Response
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler
-#from aiogram.webhook.middlewares.fastapi import FastAPIRequestHandler
 
 from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest
-
 
 # ===== настройки окружения =====
 PORT = int(os.getenv("PORT", "10000"))  # Render открывает порт из $PORT
@@ -87,15 +84,18 @@ def db():
     con.executescript(DDL)
     return con
 
+
 def load_channels():
     if not CHANNELS_FILE.exists():
         return []
     lines = CHANNELS_FILE.read_text(encoding="utf-8").splitlines()
     return [s.strip() for s in lines if s.strip() and not s.strip().startswith("#")]
 
+
 def last_msg_id_for(con, chat_id: int) -> int:
     row = con.execute("SELECT last_msg_id FROM channels_state WHERE chat_id=?", (chat_id,)).fetchone()
     return int(row[0]) if row and row[0] else 0
+
 
 def upsert_state(con, chat_id, title, username, last_id):
     con.execute(
@@ -109,6 +109,7 @@ def upsert_state(con, chat_id, title, username, last_id):
         """,
         (chat_id, title, username or "", last_id, datetime.now(timezone.utc).isoformat())
     )
+
 
 async def crawl_once():
     chans = load_channels()
@@ -163,6 +164,7 @@ async def crawl_once():
         await client.disconnect()
         con.close()
 
+
 async def crawler_loop():
     while True:
         try:
@@ -171,13 +173,14 @@ async def crawler_loop():
             print("[crawler] ошибка:", e)
         await asyncio.sleep(CRAWL_INTERVAL_SEC)
 
+
 def query_db(q: str, limit: int = 10):
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     sql = """
     SELECT d.chat_title, d.url, d.date, substr(d.text, 1, 500) AS cut
     FROM docs_fts
-    JOIN docs d ON d.id = docs_fts.rowid and d.date>Date('now','-1 years')
+    JOIN docs d ON d.id = docs_fts.rowid
     WHERE docs_fts MATCH ?
     ORDER BY bm25(docs_fts)
     LIMIT ?;
@@ -186,10 +189,12 @@ def query_db(q: str, limit: int = 10):
     con.close()
     return rows
 
+
 # ==== хендлеры бота ====
 @dp.message(F.text & ~F.text.startswith("/"))
 async def plain_text(m: Message):
     await do_search(m)
+
 
 @dp.message(F.command == "start")
 async def start(m: Message):
@@ -224,26 +229,49 @@ async def do_search(m: Message):
 async def lifespan(app: FastAPI):
     # startup
     if not BASE_URL:
+        # Если упадём на старте, корректно закроем сессию бота
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
         raise RuntimeError("BASE_URL не задан (например, https://your-app.onrender.com)")
-    await bot.set_webhook(
-        url=BASE_URL + WEBHOOK_PATH,
-        drop_pending_updates=True,
-        secret_token=WEBHOOK_SECRET,
-    )
-    crawler_task = asyncio.create_task(crawler_loop())
-    print("[startup] webhook установлен, краулер запущен")
+
+    # Устанавливаем вебхук и готовим фон
+    try:
+        await bot.set_webhook(
+            url=BASE_URL + WEBHOOK_PATH,
+            drop_pending_updates=True,
+            secret_token=WEBHOOK_SECRET,
+        )
+        crawler_task = asyncio.create_task(crawler_loop())
+        print("[startup] webhook установлен, краулер запущен")
+    except Exception:
+        # Если что-то пошло не так на старте — закрываем HTTP-сессию бота
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+        raise
 
     try:
-        yield  # <- здесь FastAPI работает
+        yield
     finally:
         # shutdown
-        crawler_task.cancel()
         try:
+            crawler_task.cancel()
             await crawler_task
-        except asyncio.CancelledError:
+        except Exception:
             pass
-        await bot.delete_webhook(drop_pending_updates=True)
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+        finally:
+            # ВАЖНО: закрыть aiohttp-сессию, иначе будет Unclosed client session
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
         print("[shutdown] webhook снят, краулер остановлен")
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -254,7 +282,6 @@ async def telegram_webhook(request: Request):
     # Проверяем секрет вебхука
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if secret != WEBHOOK_SECRET:
-        # Чтобы не палить причину — 403
         raise HTTPException(status_code=403, detail="forbidden")
     try:
         data = await request.json()
@@ -265,16 +292,8 @@ async def telegram_webhook(request: Request):
     await dp.feed_update(bot, update)
     return Response(content='{"ok": true}', media_type="application/json")
 
+
 # health
 @app.get("/")
 async def root():
     return {"status": "ok"}
-
-
-# ==== запуск ====
-async def main():
-    print("Бот запущен. /start /search")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
