@@ -18,5 +18,8 @@ services:
       - key: BASE_URL
         sync: false
       - key: WEBHOOK_SECRET
-        generateValue: true
+        sync: false   # задай в Dashboard вручную, без пробелов и спецсимволов
+      - key: WEBHOOK_PATH
+        value: /webhook
+
 
