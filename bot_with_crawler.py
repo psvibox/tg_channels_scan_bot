@@ -3,16 +3,18 @@
 import os, html, asyncio, sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import Message, LinkPreviewOptions
+from aiogram.types import Message, LinkPreviewOptions, Update
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 #from aiogram.webhook.middlewares.fastapi import FastAPIRequestHandler
 
 from telethon import TelegramClient
 from telethon.tl.functions.channels import JoinChannelRequest
+
 
 # ===== настройки окружения =====
 PORT = int(os.getenv("PORT", "10000"))  # Render открывает порт из $PORT
@@ -175,7 +177,7 @@ def query_db(q: str, limit: int = 10):
     sql = """
     SELECT d.chat_title, d.url, d.date, substr(d.text, 1, 500) AS cut
     FROM docs_fts
-    JOIN docs d ON d.id = docs_fts.rowid
+    JOIN docs d ON d.id = docs_fts.rowid and d.date>Date('now','-1 years')
     WHERE docs_fts MATCH ?
     ORDER BY bm25(docs_fts)
     LIMIT ?;
@@ -191,7 +193,8 @@ async def plain_text(m: Message):
 
 @dp.message(F.command == "start")
 async def start(m: Message):
-    await m.answer("Пишите запрос прямо сообщением. Для фраз используйте кавычки, для префиксов — *.")
+    await m.answer("Пишите запрос прямо сообщением. Для фраз используйте кавычки, для префиксов *.")
+
 
 async def do_search(m: Message):
     q = (m.text or "").strip()
@@ -215,22 +218,35 @@ async def do_search(m: Message):
             text += url + "\n"
         await m.answer(text, link_preview_options=lp_opts)
 
-# ==== FastAPI + webhook ====
-app = FastAPI()
 
-@app.on_event("startup")
-async def on_startup():
-    # ставим webhook
+# ==== FastAPI + lifespan вместо on_event ====
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
     if not BASE_URL:
         raise RuntimeError("BASE_URL не задан (например, https://your-app.onrender.com)")
-    await bot.set_webhook(url=BASE_URL + WEBHOOK_PATH, drop_pending_updates=True)
-    # запускаем фоновый краулер
-    asyncio.create_task(crawler_loop())
+    await bot.set_webhook(
+        url=BASE_URL + WEBHOOK_PATH,
+        drop_pending_updates=True,
+        secret_token=WEBHOOK_SECRET,
+    )
+    crawler_task = asyncio.create_task(crawler_loop())
     print("[startup] webhook установлен, краулер запущен")
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    await bot.delete_webhook(drop_pending_updates=True)
+    try:
+        yield  # <- здесь FastAPI работает
+    finally:
+        # shutdown
+        crawler_task.cancel()
+        try:
+            await crawler_task
+        except asyncio.CancelledError:
+            pass
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("[shutdown] webhook снят, краулер остановлен")
+
+app = FastAPI(lifespan=lifespan)
+
 
 # прокидываем обновления в aiogram
 @app.post(WEBHOOK_PATH)
@@ -254,3 +270,11 @@ async def telegram_webhook(request: Request):
 async def root():
     return {"status": "ok"}
 
+
+# ==== запуск ====
+async def main():
+    print("Бот запущен. /start /search")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
