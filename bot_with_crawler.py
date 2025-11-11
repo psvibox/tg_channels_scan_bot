@@ -1,6 +1,6 @@
 # bot_with_crawler.py v1.1
 # pip install aiogram fastapi uvicorn telethon
-import os, html, asyncio, sqlite3
+import os, html, asyncio, sqlite3, json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager, suppress
@@ -21,6 +21,8 @@ BASE_URL = os.getenv("BASE_URL")        # публичный https URL Render с
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен (только латиница/цифры/подчёркивание/дефис)
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем секрет в путь
 DELETE_WEBHOOK_ON_SHUTDOWN = os.getenv("DELETE_WEBHOOK_ON_SHUTDOWN", "0") == "1"
+WEBHOOK_WATCHDOG = os.getenv("WEBHOOK_WATCHDOG", "1") == "1"  # включить сторожа
+EXPECTED_WEBHOOK_URL = None  # вычислим на старте из BASE_URL + WEBHOOK_PATH
 
 #DB_PATH = Path(os.getenv("DB_PATH", "data/search.db"))
 RUN_DIR = Path(os.getenv("RUN_DIR", ".")).resolve()
@@ -197,8 +199,8 @@ async def crawl_once():
                 if last_id == 0 and m.date:
                      md = m.date if m.date.tzinfo else m.date.replace(tzinfo=timezone.utc)
                      # Telethon отдаёт от новых к старым, как только ушли ниже порога — дальше только старее
-                     #if md < cutoff_dt:
-                     #    break
+                     if md < cutoff_dt:
+                         break
                          
                 text = m.message or ""
                 if not text:
@@ -299,13 +301,20 @@ async def lifespan(app: FastAPI):
 
     # Устанавливаем вебхук и готовим фон
     try:
+        BASE_URL = BASE_URL.rstrip("/")
+        global EXPECTED_WEBHOOK_URL
+        EXPECTED_WEBHOOK_URL = BASE_URL + WEBHOOK_PATH
+
         await bot.set_webhook(
-            url=BASE_URL + WEBHOOK_PATH,
-            drop_pending_updates=True,
+            url=EXPECTED_WEBHOOK_URL,
             secret_token=WEBHOOK_SECRET,
+            drop_pending_updates=True,
+            allowed_updates=["message","edited_message","channel_post","edited_channel_post","callback_query"],
         )
         crawler_task = asyncio.create_task(crawler_loop())
-        print("[startup] webhook установлен, краулер запущен")
+        print("[startup] webhook установлен {EXPECTED_WEBHOOK_URL}, краулер запущен")
+        # Запускаем сторожа
+        watchdog_task = asyncio.create_task(webhook_watchdog()) if WEBHOOK_WATCHDOG else None
     except Exception:
         # Если что-то пошло не так на старте — закрываем HTTP-сессию бота
         try:
@@ -318,7 +327,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         # останавливаем фон
-        for t in (locals().get("crawler_task"), locals().get("webhook_task")):
+        for t in (locals().get("crawler_task"), locals().get("webhook_task"), locals().get("watchdog_task")):
             if t:
                 t.cancel()
                 with suppress(asyncio.CancelledError, Exception):
@@ -336,7 +345,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-
+#Чтобы быстро увидеть, кто «сбивает» вебхук, добавь лёгкий эндпоинт:
+@app.get("/admin/webhook_info")
+async def admin_webhook_info(key: str = Query("")):
+    if not ADMIN_KEY or key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="forbidden")
+    info = await bot.get_webhook_info()
+    return json.loads(info.model_dump_json())
+    
 # прокидываем обновления в aiogram
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
@@ -399,11 +415,41 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
             for r in last_rows[:limit]
         ],
     }
-    
+
+#Фоновая задача-сторож
+async def webhook_watchdog():
+    assert EXPECTED_WEBHOOK_URL, "EXPECTED_WEBHOOK_URL не задан"
+    while True:
+        try:
+            info = await bot.get_webhook_info()
+            # Приведём к dict для наглядных логов
+            data = json.loads(info.model_dump_json())
+            url = data.get("url")
+            last_err = data.get("last_error_message")
+            pend = data.get("pending_update_count")
+            if url != EXPECTED_WEBHOOK_URL:
+                print(f"[webhook][watchdog] рассинхрон: сейчас url={url!r}, ожидаю {EXPECTED_WEBHOOK_URL!r}. Переставляю…")
+                await bot.set_webhook(
+                    url=EXPECTED_WEBHOOK_URL,
+                    secret_token=WEBHOOK_SECRET,
+                    drop_pending_updates=False,
+                    allowed_updates=["message","edited_message","channel_post","edited_channel_post","callback_query"],
+                )
+                print("[webhook][watchdog] установлен заново.")
+            else:
+                if last_err:
+                    print(f"[webhook][watchdog] ok, но у Telegram ошибка доставки: {last_err}. pending={pend}")
+                else:
+                    print(f"[webhook][watchdog] ok. pending={pend}")
+        except Exception as e:
+            print("[webhook][watchdog] ошибка:", e)
+        await asyncio.sleep(60)
+
 # health
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
