@@ -21,7 +21,10 @@ BASE_URL = os.getenv("BASE_URL")        # публичный https URL Render с
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен (только латиница/цифры/подчёркивание/дефис)
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем секрет в путь
 
-DB_PATH = Path(os.getenv("DB_PATH", "data/search.db"))
+#DB_PATH = Path(os.getenv("DB_PATH", "data/search.db"))
+RUN_DIR = Path(os.getenv("RUN_DIR", ".")).resolve()
+DB_PATH = Path(os.getenv("DB_PATH", str(RUN_DIR / "data" / "search.db"))).resolve()
+print(f"[env] cwd={Path.cwd()} DB_PATH={DB_PATH}")
 CHANNELS_FILE = Path(os.getenv("CHANNELS_FILE", "channels.txt"))
 CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # каждые 15 минут
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
@@ -254,6 +257,9 @@ async def lifespan(app: FastAPI):
             pass
         raise RuntimeError("BASE_URL не задан (например, https://your-app.onrender.com)")
 
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[startup] ensure db dir: {DB_PATH.parent} exists")
+
     # Устанавливаем вебхук и готовим фон
     try:
         await bot.set_webhook(
@@ -312,6 +318,7 @@ async def telegram_webhook(request: Request):
 
 #Хелпер для статистики:
 def db_stats():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
     total_docs = cur.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
@@ -360,6 +367,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
