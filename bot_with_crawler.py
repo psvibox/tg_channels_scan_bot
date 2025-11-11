@@ -163,9 +163,9 @@ async def crawl_once():
                  cutoff_dt = cutoff_dt.replace(tzinfo=timezone.utc)
          except Exception:
              cutoff_dt = datetime.now(timezone.utc) - timedelta(days=CRAWL_SINCE_DAYS)
-     else:
+    else:
          cutoff_dt = datetime.now(timezone.utc) - timedelta(days=CRAWL_SINCE_DAYS)
-     print(f"[crawler] cutoff date (first run): {cutoff_dt.isoformat()}")
+    print(f"[crawler] cutoff date (first run): {cutoff_dt.isoformat()}")
 
     if not await client.is_user_authorized():
         raise RuntimeError("Telethon не авторизован. Установи TG_SESSION_STRING (StringSession) или смонтируй persist-диск и выполни вход один раз.")
@@ -400,6 +400,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
