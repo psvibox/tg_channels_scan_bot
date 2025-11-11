@@ -3,7 +3,7 @@
 import os, html, asyncio, sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, HTTPException, Response, Query
 from aiogram import Bot, Dispatcher, F
@@ -374,6 +374,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
