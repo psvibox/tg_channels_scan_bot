@@ -2,7 +2,7 @@
 # pip install aiogram fastapi uvicorn telethon
 import os, html, asyncio, sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, HTTPException, Response, Query
@@ -27,6 +27,10 @@ DB_PATH = Path(os.getenv("DB_PATH", str(RUN_DIR / "data" / "search.db"))).resolv
 print(f"[env] cwd={Path.cwd()} DB_PATH={DB_PATH}")
 CHANNELS_FILE = Path(os.getenv("CHANNELS_FILE", "channels.txt"))
 CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # каждые 15 минут
+# Порог первичного бэкапа: либо точная дата ISO, либо N дней «вглубь»
+CRAWL_SINCE_DAYS = int(os.getenv("CRAWL_SINCE_DAYS", "365"))
+CRAWL_SINCE_ISO  = os.getenv("CRAWL_SINCE_ISO", "").strip()
+
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 # Bot API токен
@@ -138,6 +142,7 @@ async def crawl_once():
     else:
         client = TelegramClient(SESSION, API_ID, API_HASH)
         await client.connect()
+        
     try:
         me = await client.get_me()
         print("[telethon] me:", getattr(me, "id", None), getattr(me, "username", None), "bot=", getattr(me, "bot", None))
@@ -149,6 +154,19 @@ async def crawl_once():
              "TG_SESSION_STRING указывает на БОТА. Краулер Telethon требует пользовательскую сессию. "
              "Сгенерируй StringSession через вход по телефону и подставь её в переменную окружения."
              )
+
+    # вычисляем порог «не старше чем»
+    if CRAWL_SINCE_ISO:
+         try:
+             cutoff_dt = datetime.fromisoformat(CRAWL_SINCE_ISO)
+             if cutoff_dt.tzinfo is None:
+                 cutoff_dt = cutoff_dt.replace(tzinfo=timezone.utc)
+         except Exception:
+             cutoff_dt = datetime.now(timezone.utc) - timedelta(days=CRAWL_SINCE_DAYS)
+     else:
+         cutoff_dt = datetime.now(timezone.utc) - timedelta(days=CRAWL_SINCE_DAYS)
+     print(f"[crawler] cutoff date (first run): {cutoff_dt.isoformat()}")
+
     if not await client.is_user_authorized():
         raise RuntimeError("Telethon не авторизован. Установи TG_SESSION_STRING (StringSession) или смонтируй persist-диск и выполни вход один раз.")
     try:
@@ -174,6 +192,13 @@ async def crawl_once():
             inserted_before = con.total_changes
 
             async for m in client.iter_messages(entity, **kwargs):
+                # Если это первичный прогон (last_id == 0), обрезаем по дате
+                if last_id == 0 and m.date:
+                     md = m.date if m.date.tzinfo else m.date.replace(tzinfo=timezone.utc)
+                     # Telethon отдаёт от новых к старым, как только ушли ниже порога — дальше только старее
+                     if md < cutoff_dt:
+                         break
+                         
                 text = m.message or ""
                 if not text:
                     continue
@@ -375,6 +400,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
