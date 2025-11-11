@@ -196,8 +196,8 @@ async def crawl_once():
                 if last_id == 0 and m.date:
                      md = m.date if m.date.tzinfo else m.date.replace(tzinfo=timezone.utc)
                      # Telethon отдаёт от новых к старым, как только ушли ниже порога — дальше только старее
-                     if md < cutoff_dt:
-                         break
+                     #if md < cutoff_dt:
+                     #    break
                          
                 text = m.message or ""
                 if not text:
@@ -400,6 +400,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
