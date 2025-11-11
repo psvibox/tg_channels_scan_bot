@@ -120,6 +120,7 @@ async def crawl_once():
         return
 
     con = db()
+    print("[env] TG_SESSION_STRING set:", bool(SESSION_STRING), "len:", len(SESSION_STRING or 0))
     if SESSION_STRING:
         client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
         await client.connect()
@@ -311,4 +312,5 @@ async def telegram_webhook(request: Request):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
