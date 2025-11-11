@@ -5,10 +5,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi import FastAPI, Request, HTTPException, Response, Query
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
+from aiogram.filters import Command
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -23,6 +24,7 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем с
 DB_PATH = Path("data/search.db")
 CHANNELS_FILE = Path(os.getenv("CHANNELS_FILE", "channels.txt"))
 CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # каждые 15 минут
+ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 # Bot API токен
 TOKEN = os.getenv("BOT_TOKEN")
@@ -115,6 +117,7 @@ def upsert_state(con, chat_id, title, username, last_id):
 
 async def crawl_once():
     chans = load_channels()
+    print(f"[crawler] channels loaded: {len(chans)} -> {chans[:5]}{' ...' if len(chans)>5 else ''}")
     if not chans:
         print("[crawler] channels.txt пуст")
         return
@@ -307,10 +310,56 @@ async def telegram_webhook(request: Request):
     await dp.feed_update(bot, update)
     return Response(content='{"ok": true}', media_type="application/json")
 
+#Хелпер для статистики:
+def db_stats():
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
+    total_docs = cur.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
+    total_channels = cur.execute("SELECT COUNT(*) FROM channels_state").fetchone()[0]
+    last_rows = cur.execute("""
+        SELECT chat_title, username, last_msg_id, updated_at
+        FROM channels_state
+        ORDER BY updated_at DESC
+        LIMIT 10
+    """).fetchall()
+    con.close()
+    return total_docs, total_channels, last_rows
 
+#Команда бота /stats
+@dp.message(Command("stats"))
+async def stats_cmd(m: Message):
+    total_docs, total_channels, last_rows = db_stats()
+    lines = [f"docs: {total_docs}", f"channels: {total_channels}"]
+    for t in last_rows:
+        title, username, last_id, updated = t
+        u = f"@{username}" if username else ""
+        lines.append(f"• {title} {u}  last_id={last_id}  {updated}")
+    await m.answer("\n".join(lines))
+
+#HTTP-эндпоинт /admin/stats с ключом:
+@app.get("/admin/stats")
+async def admin_stats(key: str = Query(""), limit: int = 10):
+    if not ADMIN_KEY or key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="forbidden")
+    total_docs, total_channels, last_rows = db_stats()
+    return {
+        "docs": total_docs,
+        "channels": total_channels,
+        "last": [
+            {
+                "chat_title": r[0],
+                "username": r[1],
+                "last_msg_id": r[2],
+                "updated_at": r[3],
+            }
+            for r in last_rows[:limit]
+        ],
+    }
+    
 # health
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
