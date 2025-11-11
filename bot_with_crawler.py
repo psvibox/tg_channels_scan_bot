@@ -149,7 +149,7 @@ async def crawl_once():
              "TG_SESSION_STRING указывает на БОТА. Краулер Telethon требует пользовательскую сессию. "
              "Сгенерируй StringSession через вход по телефону и подставь её в переменную окружения."
              )
-    if not await bool(client.is_user_authorized()):
+    if not await client.is_user_authorized():
         raise RuntimeError("Telethon не авторизован. Установи TG_SESSION_STRING (StringSession) или смонтируй persist-диск и выполни вход один раз.")
     try:
         for chan in chans:
@@ -374,6 +374,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
