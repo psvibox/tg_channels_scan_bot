@@ -44,7 +44,12 @@ if not API_ID or not API_HASH:
     raise SystemExit("TG_API_ID / TG_API_HASH не заданы")
 
 SESSION = os.getenv("TG_SESSION", "tg_crawler_embedded")
-SESSION_STRING = os.getenv("TG_SESSION_STRING", "")
+raw_s = os.getenv("TG_SESSION_STRING", "")
+SESSION_STRING = raw_s.strip().strip("'").strip('"')
+
+print("[env] TG_SESSION_STRING set:", bool(SESSION_STRING), "len:", len(SESSION_STRING))
+if SESSION_STRING and len(SESSION_STRING) < 100:
+    print("[env][warn] сессия подозрительно короткая, похоже, битая.")
 
 DDL = """
 CREATE TABLE IF NOT EXISTS docs (
@@ -133,7 +138,12 @@ async def crawl_once():
     else:
         client = TelegramClient(SESSION, API_ID, API_HASH)
         await client.connect()
-    me = await client.get_me()
+    try:
+        me = await client.get_me()
+        print("[telethon] me:", getattr(me, "id", None), getattr(me, "username", None), "bot=", getattr(me, "bot", None))
+    except Exception as e:
+        print("[telethon] get_me() failed:", e)
+        
     if getattr(me, "bot", False):
        raise RuntimeError(
              "TG_SESSION_STRING указывает на БОТА. Краулер Telethon требует пользовательскую сессию. "
@@ -367,6 +377,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
