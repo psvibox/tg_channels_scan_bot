@@ -296,14 +296,17 @@ async def lifespan(app: FastAPI):
             pass
         raise RuntimeError("BASE_URL не задан (например, https://your-app.onrender.com)")
 
+    # IMPORTANT: не трогаем глобальную BASE_URL, работаем с локальной копией
+    base_url = (BASE_URL or "").strip()
+    
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     print(f"[startup] ensure db dir: {DB_PATH.parent} exists")
 
     # Устанавливаем вебхук и готовим фон
     try:
-        BASE_URL = BASE_URL.rstrip("/")
+        base_url = base_url.rstrip("/")
         global EXPECTED_WEBHOOK_URL
-        EXPECTED_WEBHOOK_URL = BASE_URL + WEBHOOK_PATH
+        EXPECTED_WEBHOOK_URL = base_url + WEBHOOK_PATH
 
         await bot.set_webhook(
             url=EXPECTED_WEBHOOK_URL,
@@ -449,6 +452,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
