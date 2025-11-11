@@ -21,7 +21,7 @@ BASE_URL = os.getenv("BASE_URL")        # публичный https URL Render с
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен (только латиница/цифры/подчёркивание/дефис)
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем секрет в путь
 
-DB_PATH = Path("data/search.db")
+DB_PATH = Path(os.getenv("DB_PATH", "data/search.db"))
 CHANNELS_FILE = Path(os.getenv("CHANNELS_FILE", "channels.txt"))
 CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # каждые 15 минут
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
@@ -360,6 +360,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
