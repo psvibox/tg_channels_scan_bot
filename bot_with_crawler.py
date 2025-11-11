@@ -213,6 +213,7 @@ def query_db(q: str, limit: int = 10):
     FROM docs_fts
     JOIN docs d ON d.id = docs_fts.rowid
     WHERE docs_fts MATCH ?
+     AND d.date>Date('now','-1 years')
     ORDER BY bm25(docs_fts)
     LIMIT ?;
     """
@@ -374,6 +375,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
