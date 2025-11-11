@@ -290,20 +290,17 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # shutdown
-        try:
-            crawler_task.cancel()
-            await crawler_task
-        except Exception:
-            pass
-        try:
+        # останавливаем фон
+        for t in (locals().get("crawler_task"), locals().get("webhook_task")):
+            if t:
+                t.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await t
+        # снимаем вебхук и закрываем aiohttp-сессию бота
+        with suppress(Exception):
             await bot.delete_webhook(drop_pending_updates=True)
-        finally:
-            # ВАЖНО: закрыть aiohttp-сессию, иначе будет Unclosed client session
-            try:
-                await bot.session.close()
-            except Exception:
-                pass
+        with suppress(Exception):
+            await bot.session.close()
         print("[shutdown] webhook снят, краулер остановлен")
 
 
@@ -377,6 +374,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
