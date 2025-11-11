@@ -20,6 +20,7 @@ PORT = int(os.getenv("PORT", "10000"))  # Render открывает порт и�
 BASE_URL = os.getenv("BASE_URL")        # публичный https URL Render сервиса, например https://your-app.onrender.com
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")  # любой токен (только латиница/цифры/подчёркивание/дефис)
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")  # не включаем секрет в путь
+DELETE_WEBHOOK_ON_SHUTDOWN = os.getenv("DELETE_WEBHOOK_ON_SHUTDOWN", "0") == "1"
 
 #DB_PATH = Path(os.getenv("DB_PATH", "data/search.db"))
 RUN_DIR = Path(os.getenv("RUN_DIR", ".")).resolve()
@@ -322,12 +323,15 @@ async def lifespan(app: FastAPI):
                 t.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await t
-        # снимаем вебхук и закрываем aiohttp-сессию бота
-        with suppress(Exception):
-            await bot.delete_webhook(drop_pending_updates=True)
+        # НЕ снимаем вебхук на Render Free: Telegram сам ретраит запросы, URL остаётся тем же
+        if DELETE_WEBHOOK_ON_SHUTDOWN:
+            with suppress(Exception):
+                 await bot.delete_webhook(drop_pending_updates=True)
+            print("[shutdown] webhook снят")
+        
         with suppress(Exception):
             await bot.session.close()
-        print("[shutdown] webhook снят, краулер остановлен")
+        print("[shutdown] фон остановлен, сессия закрыта")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -400,6 +404,7 @@ async def admin_stats(key: str = Query(""), limit: int = 10):
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
