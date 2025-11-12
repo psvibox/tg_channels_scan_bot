@@ -368,7 +368,7 @@ async def hide_kb(m: Message):
 
 #Команда для выбора каналов
 @dp.message(F.text.in_({"/channels", "channels", "/filters"}))
-async def choose_channels(m: types.Message):
+async def choose_channels(m: Message):
     uid = m.from_user.id
     selected = USER_FILTERS.get(uid, set())
     chans = get_channels_list()
@@ -585,6 +585,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
