@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 from telethon import TelegramClient
@@ -37,6 +38,9 @@ CRAWL_SINCE_ISO  = os.getenv("CRAWL_SINCE_ISO", "").strip()
 
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
+# user_id -> set(chat_id) Храним каналя выбранные пользователем
+USER_FILTERS: dict[int, set[int]] = {}
+
 # Bot API токен
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN or ":" not in TOKEN:
@@ -53,6 +57,21 @@ kb_search = ReplyKeyboardMarkup(
     one_time_keyboard=False,  # пусть висит постоянно
     input_field_placeholder=None  # placeholder зададим при отправке сообщения
 )
+
+#Клавиатура с «чекбоксами»
+def build_channels_kb(channels: list[tuple[int, str]], selected: set[int]) -> InlineKeyboardMarkup:
+    rows = []
+    for chat_id, title in channels:
+        mark = "☑" if chat_id in selected else "☐"
+        # короткий текст кнопки, чтобы не упираться в ширину
+        txt = f"{mark} {title[:28]}"
+        rows.append([InlineKeyboardButton(text=txt, callback_data=f"ch:{chat_id}")])
+    # нижняя панель
+    rows.append([
+        InlineKeyboardButton(text="✅ Применить", callback_data="apply"),
+        InlineKeyboardButton(text="❌ Сброс", callback_data="clear")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 # Telethon (my.telegram.org)
 API_ID = int(os.getenv("TG_API_ID", "0"))
@@ -120,6 +139,17 @@ def load_channels():
     lines = CHANNELS_FILE.read_text(encoding="utf-8").splitlines()
     return [s.strip() for s in lines if s.strip() and not s.strip().startswith("#")]
 
+#Достаём список каналов из БД для кнопок выбора пользователя
+def get_channels_list(limit: int | None = None):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    sql = "SELECT DISTINCT chat_id, COALESCE(chat_title,'Без названия') AS title FROM channels_state ORDER BY title COLLATE NOCASE"
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    rows = con.execute(sql).fetchall()
+    con.close()
+    # вернём список кортежей (chat_id, title)
+    return [(int(r["chat_id"]), r["title"]) for r in rows]
 
 def last_msg_id_for(con, chat_id: int) -> int:
     row = con.execute("SELECT last_msg_id FROM channels_state WHERE chat_id=?", (chat_id,)).fetchone()
@@ -243,7 +273,7 @@ async def crawler_loop():
         await asyncio.sleep(CRAWL_INTERVAL_SEC)
 
 
-def query_db(q: str, limit: int = 10):
+def query_db(q: str, limit: int = 10, channel_ids: list[int] | None = None):
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     sql = """
@@ -252,10 +282,19 @@ def query_db(q: str, limit: int = 10):
     JOIN docs d ON d.id = docs_fts.rowid
     WHERE docs_fts MATCH ?
      AND d.date>Date('now',?)
-    ORDER BY bm25(docs_fts), d.date desc
-    LIMIT ?;
     """
-    rows = con.execute(sql, (q, '-'+str(CRAWL_SINCE_DAYS)+' days', limit)).fetchall()
+    params = [q,'-'+str(CRAWL_SINCE_DAYS)+' days']
+
+    if channel_ids:
+        placeholders = ",".join("?" for _ in channel_ids)
+        base += f" AND d.chat_id IN ({placeholders})"
+        params.extend(channel_ids)
+
+    base += " ORDER BY bm25(docs_fts), d.date desc LIMIT ?;"
+    params.append(limit)
+    
+    #rows = con.execute(sql, (q, '-'+str(CRAWL_SINCE_DAYS)+' days', limit)).fetchall()
+    rows = con.execute(base, params).fetchall()
     con.close()
     return rows
 
@@ -284,11 +323,15 @@ async def start(m: Message):
 
 
 async def do_search(m: Message):
+    uid = m.from_user.id
     q = (m.text or "").strip()
-    if not q:
+    if not q or q.startswith("/"):
         await m.reply("Введите запрос")
         return
-    rows = query_db(q, limit=10)
+        
+    selected = USER_FILTERS.get(uid, set())
+    channel_ids = list(selected) if selected else None    
+    rows = query_db(q, limit=10, channel_ids=channel_ids)
     if not rows:
         await m.reply("Ничего не нашлось.")
         return
@@ -322,6 +365,56 @@ async def show_examples(m: Message):
 @dp.message(Command("hide"))
 async def hide_kb(m: Message):
     await m.answer("Спрятал клавиатуру. Напишите /start, чтобы вернуть.", reply_markup=ReplyKeyboardRemove())
+
+#Команда для выбора каналов
+@dp.message(F.text.in_({"/channels", "channels", "/filters"}))
+async def choose_channels(m: types.Message):
+    uid = m.from_user.id
+    selected = USER_FILTERS.get(uid, set())
+    chans = get_channels_list()
+    if not chans:
+        await m.answer("Список каналов пуст. Сначала запустите краулер.")
+        return
+    kb = build_channels_kb(chans, selected)
+    await m.answer("Выберите каналы для поиска. Нажимайте, чтобы переключать ☐/☑.\nПотом жмите «Применить».", reply_markup=kb)
+
+#Обработчики «чекбоксов» выбранных каналов
+@dp.callback_query(F.data.startswith("ch:"))
+async def toggle_channel(cb: types.CallbackQuery):
+    uid = cb.from_user.id
+    chat_id = int(cb.data.split(":", 1)[1])
+    sel = USER_FILTERS.setdefault(uid, set())
+    if chat_id in sel:
+        sel.remove(chat_id)
+    else:
+        sel.add(chat_id)
+
+    # Перерисовать клавиатуру
+    chans = get_channels_list()
+    kb = build_channels_kb(chans, sel)
+    await cb.message.edit_reply_markup(reply_markup=kb)
+    await cb.answer()  # убрать "часики"
+
+@dp.callback_query(F.data == "clear")
+async def clear_selection(cb: types.CallbackQuery):
+    uid = cb.from_user.id
+    USER_FILTERS[uid] = set()
+    chans = get_channels_list()
+    kb = build_channels_kb(chans, set())
+    await cb.message.edit_reply_markup(reply_markup=kb)
+    await cb.answer("Выбор очищен")
+
+@dp.callback_query(F.data == "apply")
+async def apply_selection(cb: types.CallbackQuery):
+    uid = cb.from_user.id
+    sel = USER_FILTERS.get(uid, set())
+    if not sel:
+        msg = "Фильтр снят. Поиск по всем каналам."
+    else:
+        msg = f"Фильтр применён. Каналов: {len(sel)}."
+    await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.message.answer(msg)
+    await cb.answer("Готово")
 
 
 # ==== FastAPI + lifespan вместо on_event ====
@@ -492,6 +585,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
