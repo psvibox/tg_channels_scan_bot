@@ -252,7 +252,7 @@ def query_db(q: str, limit: int = 10):
     JOIN docs d ON d.id = docs_fts.rowid
     WHERE docs_fts MATCH ?
      AND d.date>Date('now',?)
-    ORDER BY bm25(docs_fts)
+    ORDER BY bm25(docs_fts), d.date desc
     LIMIT ?;
     """
     rows = con.execute(sql, (q, '-'+str(CRAWL_SINCE_DAYS)+' days', limit)).fetchall()
@@ -492,6 +492,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
