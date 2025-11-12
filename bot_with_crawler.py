@@ -396,7 +396,7 @@ async def toggle_channel(cb: CallbackQuery):
     await cb.answer()  # убрать "часики"
 
 @dp.callback_query(F.data == "clear")
-async def clear_selection(cb: types.CallbackQuery):
+async def clear_selection(cb: CallbackQuery):
     uid = cb.from_user.id
     USER_FILTERS[uid] = set()
     chans = get_channels_list()
@@ -405,7 +405,7 @@ async def clear_selection(cb: types.CallbackQuery):
     await cb.answer("Выбор очищен")
 
 @dp.callback_query(F.data == "apply")
-async def apply_selection(cb: types.CallbackQuery):
+async def apply_selection(cb: CallbackQuery):
     uid = cb.from_user.id
     sel = USER_FILTERS.get(uid, set())
     if not sel:
@@ -585,6 +585,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
