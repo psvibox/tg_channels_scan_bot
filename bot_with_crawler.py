@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import Command
 
 from telethon import TelegramClient
@@ -380,7 +380,7 @@ async def choose_channels(m: Message):
 
 #Обработчики «чекбоксов» выбранных каналов
 @dp.callback_query(F.data.startswith("ch:"))
-async def toggle_channel(cb: types.CallbackQuery):
+async def toggle_channel(cb: CallbackQuery):
     uid = cb.from_user.id
     chat_id = int(cb.data.split(":", 1)[1])
     sel = USER_FILTERS.setdefault(uid, set())
@@ -585,6 +585,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
