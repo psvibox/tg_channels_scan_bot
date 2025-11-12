@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, HTTPException, Response, Query
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Message, LinkPreviewOptions, Update
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters import Command
 
 from telethon import TelegramClient
@@ -43,6 +44,15 @@ if not TOKEN or ":" not in TOKEN:
 
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
+
+kb_search = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🔎 Пример запроса")]
+    ],
+    resize_keyboard=True,     # подгоняем под экран
+    one_time_keyboard=False,  # пусть висит постоянно
+    input_field_placeholder=None  # placeholder зададим при отправке сообщения
+)
 
 # Telethon (my.telegram.org)
 API_ID = int(os.getenv("TG_API_ID", "0"))
@@ -283,6 +293,19 @@ async def do_search(m: Message):
             text += url + "\n"
         await m.answer(text, link_preview_options=lp_opts)
 
+#Хендлер для кнопки «Пример запроса»:
+@dp.message(F.text == "🔎 Пример запроса")
+async def show_examples(m: Message):
+    await m.answer(
+        "Примеры:\n"
+        "• гостин* проект — найдёт гостиница, гостиничный, и т. п. вместе со словом «проект»\n"
+        "• (отель OR гостин*) AND проект — отели или гостиницы, где есть «проект»\n"
+        "• \"строительство гостиницы\" — точная фраза\n"
+        "• text:туризм AND chat_title:Россия — слово в тексте и в названии канала",
+        reply_markup=kb_search,
+        input_field_placeholder="Введите свой запрос"
+    )
+
 
 # ==== FastAPI + lifespan вместо on_event ====
 @asynccontextmanager
@@ -452,6 +475,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
