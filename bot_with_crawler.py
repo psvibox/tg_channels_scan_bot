@@ -266,9 +266,18 @@ async def plain_text(m: Message):
     await do_search(m)
 
 
-@dp.message(F.command == "start")
-async def start(m: Message):
-    await m.answer("Пишите запрос прямо сообщением. Для фраз используйте кавычки, для префиксов *.")
+#@dp.message(F.command == "start")
+#async def start(m: Message):
+#    await m.answer("Пишите запрос прямо сообщением. Для фраз используйте кавычки, для префиксов *.")
+@dp.message(Command("start"))
+async def start(m: types.Message):
+    #await m.answer("Привет. Я ищу по выбранным каналам.\nФормат: /search ваш запрос")
+    await m.answer(
+        "Я готов. Печатайте запрос прямо сюда, без /search.\n"
+        "Например: «гостин* проект», «\"строительство гостиницы\"», «(отель OR гостин*) AND проект».",
+        reply_markup=kb_search,
+        input_field_placeholder="Введите запрос, например: гостин* проект"
+    )
 
 
 async def do_search(m: Message):
@@ -305,6 +314,11 @@ async def show_examples(m: Message):
         reply_markup=kb_search,
         input_field_placeholder="Введите свой запрос"
     )
+
+#Опционально — команда, чтобы убрать клавиатуру
+@dp.message(Command("hide"))
+async def hide_kb(m: Message):
+    await m.answer("Спрятал клавиатуру. Напишите /start, чтобы вернуть.", reply_markup=ReplyKeyboardRemove())
 
 
 # ==== FastAPI + lifespan вместо on_event ====
@@ -475,6 +489,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
