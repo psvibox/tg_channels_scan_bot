@@ -270,7 +270,7 @@ async def plain_text(m: Message):
 #async def start(m: Message):
 #    await m.answer("Пишите запрос прямо сообщением. Для фраз используйте кавычки, для префиксов *.")
 @dp.message(Command("start"))
-async def start(m: types.Message):
+async def start(m: Message):
     #await m.answer("Привет. Я ищу по выбранным каналам.\nФормат: /search ваш запрос")
     await m.answer(
         "Я готов. Печатайте запрос прямо сюда, без /search.\n"
@@ -489,6 +489,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
