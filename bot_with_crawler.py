@@ -428,8 +428,8 @@ def db_stats():
     con.close()
     return total_docs, total_channels, last_rows
 
-#Команда бота /stats
-@dp.message(Command("stats") | (F.text == "📈 Каналы (info)"))
+#Команда бота /stats Command("stats")
+@dp.message((F.command == "stats") | (F.text == "📈 Каналы (info)"))
 async def stats_cmd(m: Message):
     total_docs, total_channels, last_rows = db_stats()
     lines = [f"docs: {total_docs}", f"channels: {total_channels}"]
@@ -492,6 +492,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
