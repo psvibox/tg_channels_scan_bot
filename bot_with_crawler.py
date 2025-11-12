@@ -51,7 +51,10 @@ dp = Dispatcher()
 
 kb_search = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🔎 Пример запроса"),KeyboardButton(text="📈 Каналы (info)")]
+        [KeyboardButton(text="🔎 Пример запроса")
+         ,KeyboardButton(text="📈 Каналы (info)")
+         ,KeyboardButton(text="⚙️ Настройки")
+        ]
     ],
     resize_keyboard=True,     # подгоняем под экран
     one_time_keyboard=False,  # пусть висит постоянно
@@ -299,10 +302,11 @@ def query_db(q: str, limit: int = 10, channel_ids: list[int] | None = None):
     return rows
 
 
-# ==== хендлеры бота ==== & F.text != "🔎 Пример запроса" "📈 Каналы (info)"
+# ==== хендлеры бота ==== & F.text != "🔎 Пример запроса" "📈 Каналы (info)" "⚙️ Настройки"
 @dp.message(F.text & ~F.text.startswith("/") 
             & ~F.text.endswith("🔎 Пример запроса") 
             & ~F.text.endswith("📈 Каналы (info)")
+            & ~F.text.endswith("⚙️ Настройки")
            )
 async def plain_text(m: Message):
     await do_search(m)
@@ -367,7 +371,7 @@ async def hide_kb(m: Message):
     await m.answer("Спрятал клавиатуру. Напишите /start, чтобы вернуть.", reply_markup=ReplyKeyboardRemove())
 
 #Команда для выбора каналов
-@dp.message(F.text.in_({"/channels", "channels", "/filters"}))
+@dp.message(F.text.in_({"/channels", "channels", "/filters","⚙️ Настройки"}))
 async def choose_channels(m: Message):
     uid = m.from_user.id
     selected = USER_FILTERS.get(uid, set())
@@ -585,6 +589,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
