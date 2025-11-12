@@ -261,7 +261,10 @@ def query_db(q: str, limit: int = 10):
 
 
 # ==== хендлеры бота ==== & F.text != "🔎 Пример запроса" "📈 Каналы (info)"
-@dp.message(F.text & ~F.text.startswith("/") & ~F.text.endswith(("🔎 Пример запроса","📈 Каналы (info)")) )
+@dp.message(F.text & ~F.text.startswith("/") 
+            & ~F.text.endswith("🔎 Пример запроса") 
+            & ~F.text.endswith("📈 Каналы (info)")
+           )
 async def plain_text(m: Message):
     await do_search(m)
 
@@ -489,6 +492,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
