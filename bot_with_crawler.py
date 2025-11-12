@@ -287,14 +287,14 @@ def query_db(q: str, limit: int = 10, channel_ids: list[int] | None = None):
 
     if channel_ids:
         placeholders = ",".join("?" for _ in channel_ids)
-        base += f" AND d.chat_id IN ({placeholders})"
+        sql += f" AND d.chat_id IN ({placeholders})"
         params.extend(channel_ids)
 
-    base += " ORDER BY bm25(docs_fts), d.date desc LIMIT ?;"
+    sql += " ORDER BY bm25(docs_fts), d.date desc LIMIT ?;"
     params.append(limit)
     
     #rows = con.execute(sql, (q, '-'+str(CRAWL_SINCE_DAYS)+' days', limit)).fetchall()
-    rows = con.execute(base, params).fetchall()
+    rows = con.execute(sql, params).fetchall()
     con.close()
     return rows
 
@@ -585,6 +585,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
