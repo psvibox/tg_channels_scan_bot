@@ -47,7 +47,7 @@ dp = Dispatcher()
 
 kb_search = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="🔎 Пример запроса")]
+        [KeyboardButton(text="🔎 Пример запроса"),KeyboardButton(text="📈 Каналы (info)")]
     ],
     resize_keyboard=True,     # подгоняем под экран
     one_time_keyboard=False,  # пусть висит постоянно
@@ -260,8 +260,8 @@ def query_db(q: str, limit: int = 10):
     return rows
 
 
-# ==== хендлеры бота ==== & F.text != "🔎 Пример запроса"
-@dp.message(F.text & ~F.text.startswith("/") & ~F.text.endswith("Пример запроса") )
+# ==== хендлеры бота ==== & F.text != "🔎 Пример запроса" "📈 Каналы (info)"
+@dp.message(F.text & ~F.text.startswith("/") & ~F.text.endswith(("🔎 Пример запроса","📈 Каналы (info)")) )
 async def plain_text(m: Message):
     await do_search(m)
 
@@ -426,7 +426,7 @@ def db_stats():
     return total_docs, total_channels, last_rows
 
 #Команда бота /stats
-@dp.message(Command("stats"))
+@dp.message(Command("stats") | F.text == "📈 Каналы (info)")
 async def stats_cmd(m: Message):
     total_docs, total_channels, last_rows = db_stats()
     lines = [f"docs: {total_docs}", f"channels: {total_channels}"]
@@ -489,6 +489,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
