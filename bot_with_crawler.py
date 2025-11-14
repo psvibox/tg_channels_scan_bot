@@ -35,10 +35,13 @@ CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # каждые
 # Порог первичного бэкапа: либо точная дата ISO, либо N дней «вглубь»
 CRAWL_SINCE_DAYS = int(os.getenv("CRAWL_SINCE_DAYS", "365"))
 CRAWL_SINCE_ISO  = os.getenv("CRAWL_SINCE_ISO", "").strip()
+#Пагинация результатов поиска
+PAGE_SIZE = 5  # результатов на страницу
+LAST_QUERY: dict[int, str] = {}  # user_id -> последний текст запроса
 
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
-# user_id -> set(chat_id) Храним каналя выбранные пользователем
+# user_id -> set(chat_id) Храним каналы выбранные пользователем
 USER_FILTERS: dict[int, set[int]] = {}
 
 # Bot API токен
@@ -61,7 +64,7 @@ kb_search = ReplyKeyboardMarkup(
     input_field_placeholder=None  # placeholder зададим при отправке сообщения
 )
 
-#Клавиатура с «чекбоксами»
+#Клавиатура с «чекбоксами» для выбора каналов поиска
 def build_channels_kb(channels: list[tuple[int, str]], selected: set[int]) -> InlineKeyboardMarkup:
     rows = []
     for chat_id, title in channels:
@@ -75,6 +78,22 @@ def build_channels_kb(channels: list[tuple[int, str]], selected: set[int]) -> In
         InlineKeyboardButton(text="❌ Сброс", callback_data="clear")
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+#Клавиатура пагинации результатов поиска
+def build_page_kb(page: int, total: int, page_size: int, q: str) -> InlineKeyboardMarkup:
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, pages))
+    prev_page = page - 1 if page > 1 else pages
+    next_page = page + 1 if page < pages else 1
+
+    # в callback_data укладываем только номер страницы, сам q держим в LAST_QUERY
+    rows = [[
+        InlineKeyboardButton(text="◀️", callback_data=f"pg:{prev_page}"),
+        InlineKeyboardButton(text=f"{page}/{pages}", callback_data="pg:noop"),
+        InlineKeyboardButton(text="▶️", callback_data=f"pg:{next_page}")
+    ]]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 # Telethon (my.telegram.org)
 API_ID = int(os.getenv("TG_API_ID", "0"))
@@ -275,7 +294,50 @@ async def crawler_loop():
             print("[crawler] ошибка:", e)
         await asyncio.sleep(CRAWL_INTERVAL_SEC)
 
+#Пагинация Запросы к БД: count и страница
+def search_count(q: str, channel_ids: list[int] | None = None) -> int:
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    sql = """
+    SELECT COUNT(*) AS c
+    FROM docs_fts
+    JOIN docs d ON d.id = docs_fts.rowid
+    WHERE docs_fts MATCH ?
+    AND d.date>Date('now',?)
+    """
+    params = [q,'-'+str(CRAWL_SINCE_DAYS)+' days']
+    if channel_ids:
+        placeholders = ",".join("?" for _ in channel_ids)
+        sql += f" AND d.chat_id IN ({placeholders})"
+        params.extend(channel_ids)
+    c = con.execute(sql, params).fetchone()["c"]
+    con.close()
+    return int(c)
 
+def search_page(q: str, page: int, page_size: int, channel_ids: list[int] | None = None):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    offset = (page - 1) * page_size
+    sql = """
+    SELECT d.chat_title, d.url, d.date, substr(d.text, 1, 500) AS cut
+    FROM docs_fts
+    JOIN docs d ON d.id = docs_fts.rowid
+    WHERE docs_fts MATCH ?
+    AND d.date>Date('now',?)
+    """
+    params = [q,'-'+str(CRAWL_SINCE_DAYS)+' days']
+    if channel_ids:
+        placeholders = ",".join("?" for _ in channel_ids)
+        sql += f" AND d.chat_id IN ({placeholders})"
+        params.extend(channel_ids)
+    sql += " ORDER BY bm25(docs_fts) LIMIT ? OFFSET ?;"
+    params.extend([page_size, offset])
+    rows = con.execute(sql, params).fetchall()
+    con.close()
+    return rows
+
+
+#Поиск результатов по БД. 
 def query_db(q: str, limit: int = 10, channel_ids: list[int] | None = None):
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -325,21 +387,38 @@ async def start(m: Message):
         input_field_placeholder="Введите запрос, например: гостин* проект"
     )
 
-
+#Вывод страницы результатов. Она теперь показывает страницу 1, клавиатуру и сохраняет текст запроса.
 async def do_search(m: Message):
     uid = m.from_user.id
     q = (m.text or "").strip()
     if not q or q.startswith("/"):
         await m.reply("Введите запрос")
         return
-        
+
+    # запомним последний запрос пользователя
+    LAST_QUERY[uid] = q
+    
     selected = USER_FILTERS.get(uid, set())
-    channel_ids = list(selected) if selected else None    
-    rows = query_db(q, limit=10, channel_ids=channel_ids)
-    if not rows:
+    channel_ids = list(selected) if selected else None   
+    
+    total = search_count(q, channel_ids)
+    if total == 0:
         await m.reply("Ничего не нашлось.")
         return
+
+    page = 1
+    #rows = query_db(q, limit=10, channel_ids=channel_ids)
+    rows = search_page(q, page, PAGE_SIZE, channel_ids)
     lp_opts = LinkPreviewOptions(is_disabled=True)
+    
+    #if not rows:
+    #    await m.reply("Ничего не нашлось.")
+    #    return
+        
+    # отправим заголовок страницы
+    kb = build_page_kb(page, total, PAGE_SIZE, q)
+    await m.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    
     for r in rows:
         title = html.escape(r["chat_title"] or "Канал")
         date = (r["date"] or "")[:19]
@@ -351,6 +430,61 @@ async def do_search(m: Message):
         if url:
             text += url + "\n"
         await m.answer(text, link_preview_options=lp_opts)
+
+#Обработчик коллбэков пагинации
+@dp.callback_query(F.data.startswith("pg:"))
+async def paginate(cb: types.CallbackQuery):
+    uid = cb.from_user.id
+    data = cb.data.split(":", 1)[1]
+
+    # клик по индикатору страницы
+    if data == "noop":
+        await cb.answer()
+        return
+
+    # восстановим запрос и фильтры
+    q = LAST_QUERY.get(uid)
+    if not q:
+        await cb.answer("Нет активного запроса", show_alert=True)
+        return
+    selected = USER_FILTERS.get(uid, set())
+    channel_ids = list(selected) if selected else None
+
+    try:
+        page = max(1, int(data))
+    except ValueError:
+        page = 1
+
+    total = search_count(q, channel_ids)
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(1, min(page, pages))
+
+    rows = search_page(q, page, PAGE_SIZE, channel_ids)
+    lp_opts = LinkPreviewOptions(is_disabled=True)
+
+    # Перерисуем шапку с клавиатурой
+    kb = build_page_kb(page, total, PAGE_SIZE, q)
+    try:
+        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    except Exception:
+        # если сообщение было не редактируемое, просто отправим новое
+        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+
+    # Отправим текущую страницу результатов
+    for r in rows:
+        title = html.escape(r["chat_title"] or "Канал")
+        date = (r["date"] or "")[:19]
+        url = r["url"] or ""
+        snippet = html.escape((r["cut"] or "").replace("\n", " "))
+        if len(snippet) > 300:
+            snippet = snippet[:300] + "…"
+        text = f"<b>{title}</b>\n{date}\n{snippet}\n"
+        if url:
+            text += f"{url}\n"
+        await cb.message.answer(text, link_preview_options=lp_opts)
+
+    await cb.answer()
+
 
 #Хендлер для кнопки «Пример запроса»:
 @dp.message(F.text == "🔎 Пример запроса")
@@ -589,6 +723,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
