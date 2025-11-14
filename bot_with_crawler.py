@@ -409,17 +409,22 @@ async def do_search(m: Message):
     page = 1
     #rows = query_db(q, limit=10, channel_ids=channel_ids)
     rows = search_page(q, page, PAGE_SIZE, channel_ids)
-    lp_opts = LinkPreviewOptions(is_disabled=True)
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    # сначала просто сообщение с числом результатов
+    await m.answer(f"Найдено: {total} сообщений (по {PAGE_SIZE} на страницу).")
+
+    # добавляем разделитель
+    #await m.answer(f"—  Страница {page} из {pages}  —")
+    await m.answer(f"📄 <b>Страница {page}/{pages}</b>", parse_mode="HTML")
     
-    #if not rows:
-    #    await m.reply("Ничего не нашлось.")
-    #    return
-        
+    lp_opts = LinkPreviewOptions(is_disabled=True)
     # отправим заголовок страницы
     kb = build_page_kb(page, total, PAGE_SIZE, q)
-    await m.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
     
-    for r in rows:
+    #await m.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    
+    for i, r in enumerate(rows, start=1):
         title = html.escape(r["chat_title"] or "Канал")
         date = (r["date"] or "")[:19]
         url = r["url"] or ""
@@ -429,7 +434,11 @@ async def do_search(m: Message):
         text = f"<b>{title}</b>\n{date}\n{snip}\n"
         if url:
             text += url + "\n"
-        await m.answer(text, link_preview_options=lp_opts)
+        # только к последнему результату прикрепляем клавиатуру
+        if i == len(rows):
+            await m.answer(text, link_preview_options=lp_opts, reply_markup=kb)
+        else:
+            await m.answer(text, link_preview_options=lp_opts)
 
 #Обработчик коллбэков пагинации
 @dp.callback_query(F.data.startswith("pg:"))
@@ -462,13 +471,17 @@ async def paginate(cb: CallbackQuery):
     rows = search_page(q, page, PAGE_SIZE, channel_ids)
     lp_opts = LinkPreviewOptions(is_disabled=True)
 
-    # Перерисуем шапку с клавиатурой до вывода страницы
-    #kb = build_page_kb(page, total, PAGE_SIZE, q)
-    #try:
-    #    await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
-    #except Exception:
-    #    # если сообщение было не редактируемое, просто отправим новое
-    #    await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    # ↓ новый разделитель
+    #await cb.message.answer(f"—  Страница {page} из {pages}  —")
+    #await cb.message.answer(f"📄 <b>Страница {page}/{pages}</b>", parse_mode="HTML")
+
+    #Перерисуем шапку с клавиатурой до вывода страницы
+    kb = build_page_kb(page, total, PAGE_SIZE, q)
+    try:
+        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    except Exception:
+        # если сообщение было не редактируемое, просто отправим новое
+        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
 
     # Отправим текущую страницу результатов
     for r in rows:
@@ -482,14 +495,6 @@ async def paginate(cb: CallbackQuery):
         if url:
             text += f"{url}\n"
         await cb.message.answer(text, link_preview_options=lp_opts)
-        
-    # Перерисуем шапку с клавиатурой ПОСЛЕ вывода страницы
-    kb = build_page_kb(page, total, PAGE_SIZE, q)
-    try:
-        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
-    except Exception:
-        # если сообщение было не редактируемое, просто отправим новое
-        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
     
     await cb.answer()
 
@@ -731,6 +736,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
