@@ -433,7 +433,7 @@ async def do_search(m: Message):
 
 #Обработчик коллбэков пагинации
 @dp.callback_query(F.data.startswith("pg:"))
-async def paginate(cb: types.CallbackQuery):
+async def paginate(cb: CallbackQuery):
     uid = cb.from_user.id
     data = cb.data.split(":", 1)[1]
 
@@ -723,6 +723,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
