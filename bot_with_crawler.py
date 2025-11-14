@@ -419,7 +419,6 @@ async def do_search(m: Message):
     await m.answer(f"📄 <b>Страница {page}/{pages}</b>", parse_mode="HTML")
     
     lp_opts = LinkPreviewOptions(is_disabled=True)
-    # отправим заголовок страницы
     kb = build_page_kb(page, total, PAGE_SIZE, q)
     
     #await m.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
@@ -473,18 +472,19 @@ async def paginate(cb: CallbackQuery):
 
     # ↓ новый разделитель
     #await cb.message.answer(f"—  Страница {page} из {pages}  —")
-    #await cb.message.answer(f"📄 <b>Страница {page}/{pages}</b>", parse_mode="HTML")
+    await cb.message.answer(f"📄 <b>Страница {page}/{pages}</b>", parse_mode="HTML")
 
     #Перерисуем шапку с клавиатурой до вывода страницы
-    kb = build_page_kb(page, total, PAGE_SIZE, q)
-    try:
-        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
-    except Exception:
-        # если сообщение было не редактируемое, просто отправим новое
-        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    #kb = build_page_kb(page, total, PAGE_SIZE, q)
+    #try:
+    #    await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    #except Exception:
+    #    # если сообщение было не редактируемое, просто отправим новое
+    #    await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
 
     # Отправим текущую страницу результатов
-    for r in rows:
+    #for r in rows:
+    for i, r in enumerate(rows, start=1):
         title = html.escape(r["chat_title"] or "Канал")
         date = (r["date"] or "")[:19]
         url = r["url"] or ""
@@ -494,7 +494,10 @@ async def paginate(cb: CallbackQuery):
         text = f"<b>{title}</b>\n{date}\n{snippet}\n"
         if url:
             text += f"{url}\n"
-        await cb.message.answer(text, link_preview_options=lp_opts)
+        if i == len(rows):
+            await cb.message.answer(text, link_preview_options=lp_opts, reply_markup=kb)
+        else:
+            await cb.message.answer(text, link_preview_options=lp_opts)
     
     await cb.answer()
 
@@ -736,6 +739,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
