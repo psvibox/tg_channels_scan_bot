@@ -462,13 +462,13 @@ async def paginate(cb: CallbackQuery):
     rows = search_page(q, page, PAGE_SIZE, channel_ids)
     lp_opts = LinkPreviewOptions(is_disabled=True)
 
-    # Перерисуем шапку с клавиатурой
-    kb = build_page_kb(page, total, PAGE_SIZE, q)
-    try:
-        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
-    except Exception:
-        # если сообщение было не редактируемое, просто отправим новое
-        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    # Перерисуем шапку с клавиатурой до вывода страницы
+    #kb = build_page_kb(page, total, PAGE_SIZE, q)
+    #try:
+    #    await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    #except Exception:
+    #    # если сообщение было не редактируемое, просто отправим новое
+    #    await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
 
     # Отправим текущую страницу результатов
     for r in rows:
@@ -482,7 +482,15 @@ async def paginate(cb: CallbackQuery):
         if url:
             text += f"{url}\n"
         await cb.message.answer(text, link_preview_options=lp_opts)
-
+        
+    # Перерисуем шапку с клавиатурой ПОСЛЕ вывода страницы
+    kb = build_page_kb(page, total, PAGE_SIZE, q)
+    try:
+        await cb.message.edit_text(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    except Exception:
+        # если сообщение было не редактируемое, просто отправим новое
+        await cb.message.answer(f"Найдено: {total}. Показаны {PAGE_SIZE} за страницу.", reply_markup=kb)
+    
     await cb.answer()
 
 
@@ -723,6 +731,7 @@ async def webhook_watchdog():
 @app.get("/")
 async def root():
     return {"status": "ok"}
+
 
 
 
