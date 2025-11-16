@@ -1,25 +1,51 @@
 services:
   - type: web
-    name: tg-search-bot
-    env: docker
+    name: tg-search-bot-lo14
+    env: python
     plan: free
+    region: frankfurt
+
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: uvicorn bot_with_crawler:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
+
     envVars:
+      # --- Telegram API ---
       - key: BOT_TOKEN
-        sync: false
+        sync: false                # токен бота от @BotFather
       - key: TG_API_ID
-        sync: false
+        sync: false                # API ID с my.telegram.org
       - key: TG_API_HASH
-        sync: false
-      - key: CHANNELS_FILE
-        value: /app/channels.txt
-      - key: CRAWL_INTERVAL_SEC
-        value: "900"
+        sync: false                # API Hash с my.telegram.org
+      - key: TG_SESSION_STRING
+        sync: false                # StringSession пользователя (из QR/телефона)
+
+      # --- Вебхук ---
       - key: BASE_URL
-        sync: false
-      - key: WEBHOOK_SECRET
-        sync: false   # задай в Dashboard вручную, без пробелов и спецсимволов
+        value: https://tg-search-bot-lo14.onrender.com
       - key: WEBHOOK_PATH
         value: /webhook
+      - key: WEBHOOK_SECRET
+        value: secret123
+      - key: WEBHOOK_WATCHDOG
+        value: "1"
+      - key: DELETE_WEBHOOK_ON_SHUTDOWN
+        value: "0"
 
+      # --- База данных и crawler ---
+      - key: DB_PATH
+        value: /app/data/search.db
+      - key: CRAWL_INTERVAL_SEC
+        value: "900"
+      - key: CHANNELS_FILE
+        value: channels.txt
 
+      # --- Админ-доступ ---
+      - key: ADMIN_KEY
+        value: tg_adm_info
+
+      # --- Отладочные и вспомогательные ---
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PORT
+        value: "10000"
