@@ -3,7 +3,6 @@ services:
     name: tg-search-bot
     env: docker
     plan: free
-
     buildCommand: pip install --no-cache-dir -r requirements.txt
     startCommand: uvicorn bot_with_crawler:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
@@ -49,6 +48,7 @@ services:
         value: "1"
       - key: PORT
         value: "10000"
+
 
 
 
